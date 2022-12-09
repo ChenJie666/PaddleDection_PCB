@@ -1,0 +1,172 @@
+metric: COCO    # Label评价指标，coco IoU:0.5:0.95
+num_classes: 7  # 类别数量：coco类别比实际类别(voc类别) +1
+
+# 数据集的位置等信息
+TrainDataset:
+  !COCODataSet
+    image_dir: images
+    anno_path: Annotations/train.json
+    dataset_dir: D:\ML\Dataset\PCB_DATASET
+    data_fields: ['image','gt_bbox','gt_class'] # '输入图片，得到输出框和类别'
+
+EvalDataset:
+  !COCODataSet
+    image_dir: images
+    anno_path: Annotations/val.json
+    dataset_dir: D:\ML\Dataset\PCB_DATASET
+
+TestDataset:
+  !ImageFolder
+    anno_path: Annotations/val.json
+
+
+use_gpu: False        # 是否开启GPU
+log_iter: 10          # 日志窗口的尺度
+save_dir: output/     # 输出结果罗盘位置
+snapshot_epoch: 1     # 生成快照的频率，即每1个周期生成一次
+
+epoch: 24             ### 训练周期：24
+
+LearningRate:         ### 学习率：阶段学习
+  base_lr: 0.0025     # 起始学习率：0.0025
+  schedulers:
+  - !PiecewiseDecay   ## 阶段学习率
+    gamma: 0.1        # 每次学习率变化为原来的1/10
+    milestones: [16, 22] # 总共进行两次学习率的降低，分别在第16轮和22轮开始时
+  - !LinearWarmup     ## 慢启动，共执行200次迭代，学习率为初始学习率的0.1
+    start_factor: 0.1
+    steps: 200
+
+OptimizerBuilder:     ### 定义优化器
+  optimizer:          ## 基于动量的SGD优化器
+    momentum: 0.9
+    type: Momentum
+  regularizer:        ## 定义正则项
+    factor: 0.0001
+    type: L2
+
+architecture: FasterRCNN  # 总框架类型
+
+# 预训练模型：基于已有的模型进行训练
+# pretrain_weights: https://paddledet.bj.bcebos.com/models/pretrained/ResNet50_cos_pretrained.pdparams
+# pretrain_weights: D:\ML\Project\PaddleDetection-release-2.3\work\output\Resnet50_cos_pretrained.pdparams
+pretrain_weights: D:\ML\Project\PaddleDetection-release-2.3\output\PCB_faster_rcnn_r50_fpn_3x_coco\0.pdparams
+
+## 检测模型的体系结构，包含骨干、支路、区域建设、BBox头和BBox后处理
+FasterRCNN:
+  backbone: ResNet          # 主干网络：ResNet
+  neck: FPN                 # 特征融合：特征金字塔网络
+  rpn_head: RPNHead         # 区域建议头：基于FPN的RPNHead
+  bbox_head: BBoxHead       # BBox头：BBoxHead
+  # post process
+  bbox_post_process: BBoxPostProcess  # BBox后处理器
+
+## 对定义的RestNet进行详细描述
+ResNet:
+  depth: 50                 # 深度50，即ResNet50
+  norm_type: bn             # 正则化类BN，基本上是唯一选择
+  freeze_at: 0              # 冻结部分，ResNet的前两层，不调整参数
+  return_idx: [0,1,2,3]     # 提取特征的位置，即用于FPN的特征，其实index为0
+  num_stages: 4             # 总共4个阶段
+
+## 对定义的FPN进行详细描述
+FPN:
+  out_channel: 256          ## FPN通道数：256
+
+### 对定义的RPNHead进行描述
+RPNHead:
+  anchor_generator:                             ## Anchor生成器
+    aspect_ratios: [0.5,1.0,2.0]                # Anchor的比例1:2,1:1,2:1
+    anchor_sizes: [[32],[64],[128],[256],[512]] # Anchor的尺度比例
+    strides: [4,8,16,32,64]                     # Anchor的步长
+  rpn_target_assign:                            ## RPN设置
+    batch_size_per_im: 256                      # RPN采样数量：256
+    fg_fraction: 0.5                            # 正则样本数量：256*0.5=128
+    negative_overlap: 0.3                       # 负样本IoU<0.3
+    positive_overlap: 0.7                       # 正样本IoU>0.7
+    use_random: True
+  train_proposal:                               ## 训练建议框设置
+    min_size: 0.0
+    nms_thresh: 0.7                             # 训练阶段nms阈值
+    pre_nms_top_n: 2000                         # 第一阶段nms数量
+    post_nms_top_n: 1000                        # 第二阶段nms数量
+    topk_after_collect: True
+  test_proposal:                                ## 测试建议框设置
+    min_size: 0.0
+    nms_thresh: 0.7                             # 测试阶段nms阈值
+    pre_nms_top_n: 1000                         # 第一阶段nms数量
+    post_nms_top_n: 1000                        # 第二阶段nms数量
+
+## 对定义的BBoxHead进行详细描述
+BBoxHead:
+  head: TwoFCHead                 ## 两个FC头
+  roi_extractor:
+    resolution: 7                 # RoIPooling特征层的尺度7x7
+    sampling_ratio: 0
+    aligned: True                 # 启用RoIAlign
+  bbox_assigner: BBoxAssigner
+
+## 对BBoxHead中定义的BBoxAssigner和TwoFCHead进行详细描述
+BBoxAssigner:
+  batch_size_per_im: 512    # batch数量：512
+  bg_thresh: 0.5            # 背景阈值<0.5
+  fg_thresh: 0.5            # 前景阈值>0.5
+  fg_fraction: 0.25
+  use_random: True
+
+TwoFCHead:
+  out_channel: 1024         # 全连接层特征维度(后面紧跟分类和回归层):1024
+
+## 对定义的BBoxPostProcess进行详细描述
+BBoxPostProcess:
+  decode: RCNNBox
+  nms:
+    name: MultiClassNMS
+    keep_top_k: 100
+    score_threshold: 0.05
+    nms_threshold: 0.5
+
+## 定义工作并行度
+worker_num: 2
+
+
+## 数据读取和预处理(数据增强等)
+TrainReader:
+  sample_transforms:    # 数据预处理
+  - Decode: {}
+  - RandomResize: {target_size: [[640,1333],[672,1333],[704,1333],[736,1333],[768,1333],[800,1333]],interp: 2,keep_ratio: True} # 图片随机放大
+  - RandomFlip: {prob: 0.5}   # 图片随机翻转
+  - NormalizeImage: {is_scale: true, mean: [0.485,0.456,0.406],std: [0.229,0.224,0.225]}  # 图片归一化
+  - Permute: {}
+  batch_transforms:
+  - PadBatch: {pad_to_stride: 32}
+  batch_size: 1         # 每批大尺度
+  shuffle: true         # 是否打乱顺序
+  drop_last: true       # 最后一个batch不是batch_sizes时，是否将多余数据进行丢弃
+
+EvalReader:
+  sample_transforms:
+  - Decode: {}
+  - Resize: {interp: 2,target_size:[800,1333],keep_ratio: True}
+  - NormalizeImage: {is_scale: true,mean: [0.485,0.456,0.406],std:[0.229,0.224,0.225]}
+  - Permute: {}
+  batch_transforms:
+  - PadBatch: {pad_to_stride: 32}
+  batch_size: 1
+  shuffle: false
+  drop_last: false
+  drop_empty: false
+
+TestReader:
+  sample_transforms:
+  - Decode: {}
+  - Resize: {interp: 2,target_size:[800,1333],keep_ratio: True}
+  - NormalizeImage: {is_scale: true,mean:[0.485,0.456,0.406],std:[0.229,0.224,0.225]}
+  - Permute: {}
+  batch_transforms:
+  - PadBatch: {pad_to_stride: 32}
+  batch_size: 1
+  shuffle: false
+  drop_last: false
+
+

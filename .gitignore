@@ -1,0 +1,33 @@
+# Created by .ignore support plugin (hsz.mobi)
+### Example user template template
+### Example user template
+
+# IntelliJ project files
+.idea
+*.iml
+out
+gen
+
+.travis
+benchmark
+configs
+dataset
+demo
+deploy
+docs
+output/PCB_faster_rcnn_r50_fpn_3x_coco/*
+ppdet
+scripts
+static
+tests
+tools
+.pre-commit-config.yaml
+.style.yapf
+.travis.yml
+bbox.json
+LICENSE
+README.md
+README_cn.md
+README_en.md
+requirements.txt
+setup.py
